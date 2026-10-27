@@ -283,15 +283,22 @@ final class MainWindow: NSPanel {
     }
 
     /// Window room added past the dock's resting frame along its axis, in
-    /// top-left terms (leading is the top edge on a vertical dock).
-    private var restFrameInsets: (leading: CGFloat, trailing: CGFloat) = (0, 0)
+    /// top-left terms (leading is the top edge on a vertical dock and the
+    /// left edge on a horizontal one).
+    private var restFrameInsets: (leading: CGFloat, trailing: CGFloat, isVertical: Bool) = (0, 0, false)
 
     /// The window frame without the along-axis magnification room, i.e.
     /// where the dock itself sits.
     private var restFrame: CGRect {
         var f = frame
-        f.origin.y += restFrameInsets.trailing
-        f.size.height = max(0, f.height - restFrameInsets.leading - restFrameInsets.trailing)
+        let insets = restFrameInsets
+        if insets.isVertical {
+            f.origin.y += insets.trailing
+            f.size.height = max(0, f.height - insets.leading - insets.trailing)
+        } else {
+            f.origin.x += insets.leading
+            f.size.width = max(0, f.width - insets.leading - insets.trailing)
+        }
         return f
     }
 
@@ -947,20 +954,33 @@ final class MainWindow: NSPanel {
         let restFrame = CGRect(origin: origin, size: size)
         revealTriggerZone = makeRevealTriggerZone(in: layoutBounds, frame: restFrame, position: position)
 
-        // A vertical window is only as long as the dock, so magnified
-        // icons on a dock that fills its edge would be cut off by the
-        // window well short of the screen edge. Stretch the window to the
-        // whole edge and let the view pad itself back to the resting spot.
-        // Horizontal windows already span the screen width.
-        let extendsAlongAxis = position.isVertical && magnificationHeadroom > 0 && !fullAxis
-        let frame = extendsAlongAxis
-            ? CGRect(x: restFrame.minX, y: layoutBounds.minY, width: restFrame.width, height: layoutBounds.height)
-            : restFrame
+        // The window can stop short of the screen edge along the dock's
+        // axis: a vertical window is only as long as the dock, and a
+        // horizontal one gives up `reservedStatusBarLength` once the dock
+        // overflows. Magnified icons near the ends would then be cut off by
+        // the window. Stretch the window to the whole edge and let the view
+        // pad itself back to the resting spot.
+        let extendsAlongAxis = magnificationHeadroom > 0 && !fullAxis
+        let frame: CGRect
+        if !extendsAlongAxis {
+            frame = restFrame
+        } else if position.isVertical {
+            frame = CGRect(x: restFrame.minX, y: layoutBounds.minY, width: restFrame.width, height: layoutBounds.height)
+        } else {
+            frame = CGRect(x: layoutBounds.minX, y: restFrame.minY, width: layoutBounds.width, height: restFrame.height)
+        }
         // Top-left origin, like the SwiftUI view that applies them.
-        restFrameInsets = (
-            leading: max(0, frame.maxY - restFrame.maxY),
-            trailing: max(0, restFrame.minY - frame.minY)
-        )
+        restFrameInsets = position.isVertical
+            ? (
+                leading: max(0, frame.maxY - restFrame.maxY),
+                trailing: max(0, restFrame.minY - frame.minY),
+                isVertical: true
+            )
+            : (
+                leading: max(0, restFrame.minX - frame.minX),
+                trailing: max(0, frame.maxX - restFrame.maxX),
+                isVertical: false
+            )
         DockLayoutService.shared.setAlongAxisInsets(
             leading: restFrameInsets.leading,
             trailing: restFrameInsets.trailing
